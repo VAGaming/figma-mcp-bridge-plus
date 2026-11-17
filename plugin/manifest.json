@@ -1,6 +1,6 @@
 {
-  "name": "Figma MCP Bridge",
-  "id": "figma-mcp-bridge",
+  "name": "MCP Bridge LOCAL + Components",
+  "id": "figma-mcp-bridge-local-components",
   "api": "1.0.0",
   "main": "dist/code.js",
   "ui": "dist/index.html",

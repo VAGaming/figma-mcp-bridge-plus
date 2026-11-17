@@ -36,6 +36,35 @@ import {
   scrollAndZoomIntoViewInput,
   groupNodesInput,
   ungroupNodeInput,
+  listComponentsInput,
+  getComponentPropertiesInput,
+  createComponentShape,
+  createComponentInput,
+  createComponentSetInput,
+  createInstanceInput,
+  addComponentPropertyInput,
+  editComponentPropertyShape,
+  editComponentPropertyInput,
+  deleteComponentPropertyInput,
+  bindComponentPropertyShape,
+  bindComponentPropertyInput,
+  setInstancePropertiesShape,
+  setInstancePropertiesInput,
+  detachInstanceShape,
+  detachInstanceInput,
+  booleanOperationInput,
+  setTextRangeStyleShape,
+  setTextRangeStyleInput,
+  createPaintStyleInput,
+  createTextStyleInput,
+  createVariableCollectionInput,
+  createVariableInput,
+  setVariableValuesInput,
+  bindVariableShape,
+  bindVariableInput,
+  deleteStyleInput,
+  deleteVariableInput,
+  deleteVariableCollectionInput,
   setTextPropertiesShape,
   setTextPropertiesInput,
   createConnectorBase,
@@ -335,9 +364,7 @@ export function registerTools(server: McpServer, node: Node, port: number): void
       if (!parsed.success) return parsed.error;
       const { nodeId, nodeIds, fileKey, ...params } = parsed.data;
       const ids = nodeIds ?? (nodeId !== undefined ? [nodeId] : []);
-      return renderResponse(() =>
-        node.sendWithParams("apply_paint_style", ids, params, fileKey)
-      );
+      return renderResponse(() => node.sendWithParams("apply_paint_style", ids, params, fileKey));
     }
   );
 
@@ -694,6 +721,267 @@ export function registerTools(server: McpServer, node: Node, port: number): void
       return renderResponse(() =>
         node.sendWithParams("ungroup_node", [nodeId], undefined, fileKey)
       );
+    }
+  );
+
+  server.tool(
+    "boolean_operation",
+    "Combine shapes into a boolean group with UNION, SUBTRACT, INTERSECT or EXCLUDE, like Figma's Boolean groups menu. The nodes must share a parent unless parentId is given. Returns the new boolean node's ID; the inputs become its children and keep their IDs. Only available in Figma Design. When multiple files are connected, specify fileKey.",
+    booleanOperationInput.shape,
+    async ({ nodeIds, fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() =>
+        node.sendWithParams("boolean_operation", nodeIds, params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "set_text_range_style",
+    "Style part of a text layer: font family/style, size, color, decoration, case, letter spacing, line height, hyperlink, or a local Text Style. start/end pick the characters (end exclusive) and default to the whole text. Accepts nodeId or nodeIds (TEXT, or FigJam STICKY / SHAPE_WITH_TEXT) and returns the resulting styled segments. Works in Figma and FigJam. When multiple files are connected, specify fileKey.",
+    setTextRangeStyleShape.shape,
+    async (args): Promise<ToolResult> => {
+      const parsed = parseToolInput(setTextRangeStyleInput, args);
+      if (!parsed.success) return parsed.error;
+      const { nodeId, nodeIds, fileKey, ...params } = parsed.data;
+      const ids = nodeIds ?? (nodeId !== undefined ? [nodeId] : []);
+      return renderResponse(() =>
+        node.sendWithParams("set_text_range_style", ids, params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "create_paint_style",
+    "Create a local Paint Style with a solid color. Returns its styleId; link it to layers with apply_paint_style. Only available in Figma Design. When multiple files are connected, specify fileKey.",
+    createPaintStyleInput.shape,
+    async ({ fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() =>
+        node.sendWithParams("create_paint_style", undefined, params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "create_text_style",
+    "Create a local Text Style (font, size, line height, letter spacing, case, decoration). The font must be available to Figma. Returns its styleId; link it to text with set_text_range_style's textStyleId. Only available in Figma Design. When multiple files are connected, specify fileKey.",
+    createTextStyleInput.shape,
+    async ({ fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() =>
+        node.sendWithParams("create_text_style", undefined, params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "create_variable_collection",
+    "Create a local variable collection, optionally naming its modes (e.g. Light and Dark). Returns the collection ID and mode IDs. Extra modes need a paid Figma plan. Only available in Figma Design. When multiple files are connected, specify fileKey.",
+    createVariableCollectionInput.shape,
+    async ({ fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() =>
+        node.sendWithParams("create_variable_collection", undefined, params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "create_variable",
+    "Create a COLOR, FLOAT, STRING or BOOLEAN variable in a collection, optionally setting its value per mode (keyed by mode name or ID) or aliasing another variable. Returns the variable ID and values. If a value is rejected the variable is not created. Only available in Figma Design. When multiple files are connected, specify fileKey.",
+    createVariableInput.shape,
+    async ({ fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() =>
+        node.sendWithParams("create_variable", undefined, params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "set_variable_values",
+    "Set a variable's value for one or more modes (keyed by mode name or ID), or alias it to another variable. Returns previous and new values. Only available in Figma Design. When multiple files are connected, specify fileKey.",
+    setVariableValuesInput.shape,
+    async ({ fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() =>
+        node.sendWithParams("set_variable_values", undefined, params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "bind_variable",
+    "Bind a node field to a variable so the field follows it: fill or stroke color, size, min/max size, opacity, visibility, text characters, corner radii, auto-layout gap and padding, or stroke weight. Pass variableId: null to unbind. Accepts nodeId or nodeIds and returns previous and applied bindings. Only available in Figma Design. When multiple files are connected, specify fileKey.",
+    bindVariableShape.shape,
+    async (args): Promise<ToolResult> => {
+      const parsed = parseToolInput(bindVariableInput, args);
+      if (!parsed.success) return parsed.error;
+      const { nodeId, nodeIds, fileKey, ...params } = parsed.data;
+      const ids = nodeIds ?? (nodeId !== undefined ? [nodeId] : []);
+      return renderResponse(() => node.sendWithParams("bind_variable", ids, params, fileKey));
+    }
+  );
+
+  server.tool(
+    "delete_style",
+    "Delete a local paint, text, effect or grid style. This is destructive and requires confirm: true; layers using the style are detached from it. Library styles are refused. Returns the deleted style. Only available in Figma Design. When multiple files are connected, specify fileKey.",
+    deleteStyleInput.shape,
+    async ({ fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() => node.sendWithParams("delete_style", undefined, params, fileKey));
+    }
+  );
+
+  server.tool(
+    "delete_variable",
+    "Delete a local variable. This is destructive and requires confirm: true; layers, styles and variables that use it lose the link. Library variables are refused. Returns the deleted variable and its values. Only available in Figma Design. When multiple files are connected, specify fileKey.",
+    deleteVariableInput.shape,
+    async ({ fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() =>
+        node.sendWithParams("delete_variable", undefined, params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "delete_variable_collection",
+    "Delete a local variable collection and every variable in it. This is destructive and requires confirm: true; anything using those variables loses the link. Library collections are refused. Returns the deleted collection and its variable IDs. Only available in Figma Design. When multiple files are connected, specify fileKey.",
+    deleteVariableCollectionInput.shape,
+    async ({ fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() =>
+        node.sendWithParams("delete_variable_collection", undefined, params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "list_components",
+    "Read-only. List the local components and component sets on the current page (or every page with allPages: true). Each entry has its node ID, name, type, key and page; component sets list their variants. Not available in FigJam. When multiple files are connected, specify fileKey.",
+    listComponentsInput.shape,
+    async ({ fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() =>
+        node.sendWithParams("list_components", undefined, params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "get_component_properties",
+    "Read-only. For a COMPONENT or COMPONENT_SET, return its component property definitions (name, type, default value, variant options) and, for sets, its variants. For an INSTANCE, return its main component, current property values and the definitions it can be set to. For a layer inside a component, return which properties its fields are bound to. Call this to get exact property names before editing, binding or setting properties. Not available in FigJam. When multiple files are connected, specify fileKey.",
+    getComponentPropertiesInput.shape,
+    async ({ nodeId, fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() =>
+        node.sendWithParams("get_component_properties", [nodeId], params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "create_component",
+    "Convert existing nodes into main components in place. Accepts nodeId or nodeIds; each node becomes its own component and gets a new node ID, returned with the source ID. Fails for nodes inside an instance or another component. Not available in FigJam. When multiple files are connected, specify fileKey.",
+    createComponentShape.shape,
+    async (args): Promise<ToolResult> => {
+      const parsed = parseToolInput(createComponentInput, args);
+      if (!parsed.success) return parsed.error;
+      const { nodeId, nodeIds, fileKey, ...params } = parsed.data;
+      const ids = nodeIds ?? (nodeId !== undefined ? [nodeId] : []);
+      return renderResponse(() => node.sendWithParams("create_component", ids, params, fileKey));
+    }
+  );
+
+  server.tool(
+    "create_component_set",
+    "Combine COMPONENT nodes into one component set, each component becoming a variant. Variant properties come from the component names in 'Property=Value, Property=Value' form (e.g. 'State=Hover, Size=Large'); rename the components with set_node_properties before or after combining. Returns the set's node ID, variants and property definitions. Not available in FigJam. When multiple files are connected, specify fileKey.",
+    createComponentSetInput.shape,
+    async ({ nodeIds, fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() =>
+        node.sendWithParams("create_component_set", nodeIds, params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "create_instance",
+    "Create an instance of a COMPONENT, or of a COMPONENT_SET's default variant. Optionally place it in parentId at x/y and set component properties (including variant values) in the same call. Returns the instance's node ID and property values. Not available in FigJam. When multiple files are connected, specify fileKey.",
+    createInstanceInput.shape,
+    async ({ componentId, fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() =>
+        node.sendWithParams("create_instance", [componentId], params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "add_component_property",
+    "Add a component property (BOOLEAN, TEXT, INSTANCE_SWAP or VARIANT) to a COMPONENT or COMPONENT_SET. VARIANT is only valid on a component set. Returns the created property name including its '#id' suffix; BOOLEAN, TEXT and INSTANCE_SWAP properties do nothing until bound to a layer with bind_component_property. Not available in FigJam. When multiple files are connected, specify fileKey.",
+    addComponentPropertyInput.shape,
+    async ({ nodeId, fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() =>
+        node.sendWithParams("add_component_property", [nodeId], params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "edit_component_property",
+    "Rename a component property and/or change its default value on a COMPONENT or COMPONENT_SET. Renaming changes the property name, so use the returned name in later calls. Returns the previous definition and the updated definitions. Not available in FigJam. When multiple files are connected, specify fileKey.",
+    editComponentPropertyShape.shape,
+    async (args): Promise<ToolResult> => {
+      const parsed = parseToolInput(editComponentPropertyInput, args);
+      if (!parsed.success) return parsed.error;
+      const { nodeId, fileKey, ...params } = parsed.data;
+      return renderResponse(() =>
+        node.sendWithParams("edit_component_property", [nodeId], params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "delete_component_property",
+    "Delete a component property from a COMPONENT or COMPONENT_SET. This is destructive and requires confirm: true; layers bound to the property are unbound and instances lose their overrides for it. Returns the deleted definition. Not available in FigJam. When multiple files are connected, specify fileKey.",
+    deleteComponentPropertyInput.shape,
+    async ({ nodeId, fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() =>
+        node.sendWithParams("delete_component_property", [nodeId], params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "bind_component_property",
+    "Bind a layer inside a component to one of that component's properties: visible to a BOOLEAN property, characters (TEXT layers) to a TEXT property, or mainComponent (nested instances) to an INSTANCE_SWAP property. Pass propertyName: null to unbind. Accepts nodeId or nodeIds and returns previous and applied bindings. Not available in FigJam. When multiple files are connected, specify fileKey.",
+    bindComponentPropertyShape.shape,
+    async (args): Promise<ToolResult> => {
+      const parsed = parseToolInput(bindComponentPropertyInput, args);
+      if (!parsed.success) return parsed.error;
+      const { nodeId, nodeIds, fileKey, ...params } = parsed.data;
+      const ids = nodeIds ?? (nodeId !== undefined ? [nodeId] : []);
+      return renderResponse(() =>
+        node.sendWithParams("bind_component_property", ids, params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "set_instance_properties",
+    "Set component property values on instances: switch variants, toggle BOOLEAN properties, set TEXT properties or swap nested instances. Accepts nodeId or nodeIds and returns previous and applied values. Get valid names and variant options from get_component_properties. Not available in FigJam. When multiple files are connected, specify fileKey.",
+    setInstancePropertiesShape.shape,
+    async (args): Promise<ToolResult> => {
+      const parsed = parseToolInput(setInstancePropertiesInput, args);
+      if (!parsed.success) return parsed.error;
+      const { nodeId, nodeIds, fileKey, ...params } = parsed.data;
+      const ids = nodeIds ?? (nodeId !== undefined ? [nodeId] : []);
+      return renderResponse(() =>
+        node.sendWithParams("set_instance_properties", ids, params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "detach_instance",
+    "Detach instances from their main component, turning each into a plain frame with a new node ID. Detaching an instance nested in another instance also detaches its ancestor instances. Accepts nodeId or nodeIds and returns the new frame IDs. Not available in FigJam. When multiple files are connected, specify fileKey.",
+    detachInstanceShape.shape,
+    async (args): Promise<ToolResult> => {
+      const parsed = parseToolInput(detachInstanceInput, args);
+      if (!parsed.success) return parsed.error;
+      const { nodeId, nodeIds, fileKey, ...params } = parsed.data;
+      const ids = nodeIds ?? (nodeId !== undefined ? [nodeId] : []);
+      return renderResponse(() => node.sendWithParams("detach_instance", ids, params, fileKey));
     }
   );
 

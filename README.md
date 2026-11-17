@@ -1,5 +1,8 @@
 # Figma MCP Bridge
 
+> [!IMPORTANT]
+> This is a fork of [gethopp/figma-mcp-bridge](https://github.com/gethopp/figma-mcp-bridge) that adds authoring tools for components, variants, component properties, instances, styles, variables, per-range text styling and boolean operations (see the Available Tools table). The `npx @gethopp/figma-mcp-bridge` package and the published plugin do not include them: build this repo and use the [Local development](#local-development) setup instead. The development plugin is named **MCP Bridge LOCAL + Components** so it can't be confused with the published one.
+
 [![Pairing with Hopp](https://gethopp.app/git/hopp-shield.svg?ref=hopp-repo)](https://gethopp.app)
 
 - [Demo](#demo)
@@ -90,7 +93,7 @@ If you want to know more about how it works, read the [How it works](#how-it-wor
 | `set_text_content`             | Replace the contents of a text node (TEXT, FigJam sticky, or shape label)                                |
 | `set_text_properties`          | Patch font, size, alignment, auto-resize, color, and bounds on text nodes/sublayers                      |
 | `set_node_properties`          | Patch common node properties: name, position, size, visibility, opacity, corner radius (single or batch) |
-| `set_node_constraints`         | Set native Figma constraints (horizontal/vertical) for one or multiple compatible nodes                |
+| `set_node_constraints`         | Set native Figma constraints (horizontal/vertical) for one or multiple compatible nodes                  |
 | `apply_paint_style`            | Link local Figma Paint Styles to fills or strokes (single or batch), preserving the native style ID      |
 | `set_solid_fill`               | Replace a node's fill or stroke with a single solid paint                                                |
 | `set_gradient_fill`            | Replace a node's fill or stroke with a linear/radial/angular/diamond gradient                            |
@@ -119,6 +122,28 @@ If you want to know more about how it works, read the [How it works](#how-it-wor
 | `reparent_nodes`               | Move nodes into another parent                                                                           |
 | `group_nodes`                  | Wrap a list of nodes (sharing a parent) in a new group                                                   |
 | `ungroup_node`                 | Ungroup a group or frame — children move up to its parent                                                |
+| `list_components`              | List local components and component sets (current page, or all pages)                                    |
+| `get_component_properties`     | Read property definitions of a component/set, or values and bindings of an instance/layer                |
+| `create_component`             | Convert one or multiple nodes into main components                                                       |
+| `create_component_set`         | Combine components into a component set (variants)                                                       |
+| `create_instance`              | Create an instance of a component or of a set's default variant                                          |
+| `add_component_property`       | Add a BOOLEAN, TEXT, INSTANCE_SWAP or VARIANT property to a component or set                             |
+| `edit_component_property`      | Rename a component property or change its default value                                                  |
+| `delete_component_property`    | Delete a component property with explicit confirmation                                                   |
+| `bind_component_property`      | Bind (or unbind) a layer's visibility, text or nested instance to a component property                   |
+| `set_instance_properties`      | Set property values on instances (switch variant, toggle, text, swap)                                    |
+| `detach_instance`              | Detach instances from their main component into plain frames                                             |
+| `boolean_operation`            | Combine shapes with union, subtract, intersect or exclude                                                |
+| `set_text_range_style`         | Style a character range of a text layer (font, size, color, links, Text Style)                           |
+| `create_paint_style`           | Create a local Paint Style from a solid color                                                            |
+| `create_text_style`            | Create a local Text Style                                                                                |
+| `create_variable_collection`   | Create a variable collection with named modes                                                            |
+| `create_variable`              | Create a COLOR, FLOAT, STRING or BOOLEAN variable with per-mode values or aliases                        |
+| `set_variable_values`          | Set a variable's per-mode values or alias                                                                |
+| `bind_variable`                | Bind (or unbind) a node's fill, stroke, size, spacing, radius, opacity, visibility or text to a variable |
+| `delete_style`                 | Delete a local style with explicit confirmation                                                          |
+| `delete_variable`              | Delete a local variable with explicit confirmation                                                       |
+| `delete_variable_collection`   | Delete a local variable collection and its variables with explicit confirmation                          |
 | `set_selection`                | Set the page selection to a list of node IDs (works in Dev Mode)                                         |
 | `scroll_and_zoom_into_view`    | Frame the viewport around the given nodes (works in Dev Mode)                                            |
 | `delete_nodes`                 | Delete nodes with explicit confirmation                                                                  |
@@ -142,6 +167,10 @@ All tools accept an optional `fileKey` parameter when multiple Figma files are c
 - `apply_paint_style` accepts `nodeId` or `nodeIds`, a local `styleId` from `get_styles`, and `target` (`fill` default, or `stroke`). It works in Figma Design only, applies the native style (replacing paints on the selected target), and reports the linked ID; a batch reports successes and per-node errors. `get_node` exposes `styles.fillStyleId` and `styles.strokeStyleId` for independent verification (an empty ID means unlinked; `mixed` means the property has mixed values across the node). It does not import shared libraries or style individual text ranges.
 - `set_node_constraints` accepts `nodeId` or `nodeIds` with `horizontal` and/or `vertical` (`MIN`, `MAX`, `CENTER`, `STRETCH`, `SCALE`). `MIN` means Left/Top, `MAX` Right/Bottom, and `STRETCH` Left & Right/Top & Bottom. Unspecified axes are preserved. It requires nodes inside a Figma frame, component, or instance; Auto Layout children must use absolute positioning. It is unavailable in FigJam and Dev Mode. The response reports previous and applied constraints.
 - `set_auto_layout` targets frames; SECTION nodes have no auto-layout in Figma's API and return an explicit error.
+- Component tools (`list_components`, `get_component_properties`, `create_component`, `create_component_set`, `create_instance`, `add_component_property`, `edit_component_property`, `delete_component_property`, `bind_component_property`, `set_instance_properties`, `detach_instance`) work in Figma Design only: they are unavailable in FigJam, and the write tools are unavailable in Dev Mode. Variant properties are derived from component names (`State=Hover, Size=Large`), so name components with `set_node_properties` around `create_component_set`. BOOLEAN, TEXT and INSTANCE_SWAP property names carry a `#id` suffix; read exact names with `get_component_properties`. A variant passed to the property tools resolves to its component set. `delete_component_property` requires `confirm: true`. `list_components` only sees local components, not ones from shared libraries.
+- `boolean_operation`, `create_paint_style`, `create_text_style`, `create_variable_collection`, `create_variable`, `set_variable_values` and `bind_variable` work in Figma Design only. `set_text_range_style` also works on FigJam stickies and shapes. All are unavailable in Dev Mode.
+- `set_text_range_style` takes `start` (inclusive) and `end` (exclusive) character indexes, defaulting to the whole text. A `textStyleId` is applied first, so other properties in the same call override it. Fonts must be available to Figma.
+- Variable values are keyed by mode name or modeId. COLOR values are hex (`#RRGGBB` or `#RRGGBBAA`); any value can be `{ "alias": "<variableId>" }`. `bind_variable` on `fill` or `stroke` binds the first solid paint and adds one if the node has none. `delete_style`, `delete_variable` and `delete_variable_collection` require `confirm: true` and refuse library items; deleting a collection deletes its variables. Renaming styles, variables and collections, creating effect styles, and setting a frame's variable mode are not covered.
 - `fit_to_content` works on SECTION nodes only (Figma's API exposes no equivalent for other containers): it shifts children so their bounding box starts at `padding` and resizes the section to bbox + 2×padding.
 - The current user must have permission to edit the target file.
 - `delete_nodes` is intentionally gated behind `confirm: true`.

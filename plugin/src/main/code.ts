@@ -2,6 +2,11 @@ import { serializeNode } from "./serializer";
 import type { SerializableNode } from "./serializer";
 import { addLayersToFrame } from "../html-figma/figma";
 import { getPrototypeConnections, scanPrototype, tracePrototypeFlow } from "./prototype";
+import { runComponentTool } from "./components";
+import type { ComponentRequestType } from "./components";
+import { parseHexColor } from "./color";
+import { runTokenTool } from "./tokens";
+import type { TokenRequestType } from "./tokens";
 
 type RequestType =
   | "get_document"
@@ -58,7 +63,11 @@ type RequestType =
   | "remove_animation_style"
   | "apply_manual_keyframe_track"
   | "remove_manual_keyframe_track"
-  | "set_timeline_duration";
+  | "set_timeline_duration"
+  | "boolean_operation"
+  | "set_text_range_style"
+  | ComponentRequestType
+  | TokenRequestType;
 
 type ServerRequestParams = Record<string, unknown> & {
   format?: "PNG" | "SVG" | "JPG" | "PDF";
@@ -219,31 +228,6 @@ const getParentNodeById = async (parentId: string): Promise<BaseNode & ChildrenM
     await parent.loadAsync();
   }
   return parent;
-};
-
-const parseHexColor = (hex: string): RGB => {
-  const normalized = hex.trim().replace(/^#/, "");
-  if (normalized.length !== 3 && normalized.length !== 6) {
-    throw new Error(`Invalid hex color: ${hex}`);
-  }
-
-  const expanded =
-    normalized.length === 3
-      ? normalized
-          .split("")
-          .map((char) => `${char}${char}`)
-          .join("")
-      : normalized;
-
-  if (!/^[0-9a-fA-F]{6}$/.test(expanded)) {
-    throw new Error(`Invalid hex color: ${hex}`);
-  }
-
-  return {
-    r: parseInt(expanded.slice(0, 2), 16) / 255,
-    g: parseInt(expanded.slice(2, 4), 16) / 255,
-    b: parseInt(expanded.slice(4, 6), 16) / 255,
-  };
 };
 
 const setSolidFill = (
@@ -438,6 +422,26 @@ const EDIT_REQUEST_TYPES = new Set<RequestType>([
   "apply_manual_keyframe_track",
   "remove_manual_keyframe_track",
   "set_timeline_duration",
+  "create_component",
+  "create_component_set",
+  "create_instance",
+  "add_component_property",
+  "edit_component_property",
+  "delete_component_property",
+  "bind_component_property",
+  "set_instance_properties",
+  "detach_instance",
+  "boolean_operation",
+  "set_text_range_style",
+  "create_paint_style",
+  "create_text_style",
+  "create_variable_collection",
+  "create_variable",
+  "set_variable_values",
+  "bind_variable",
+  "delete_style",
+  "delete_variable",
+  "delete_variable_collection",
 ]);
 
 const requireEditorMode = (toolName: RequestType): void => {
@@ -453,6 +457,108 @@ const requireEditorMode = (toolName: RequestType): void => {
 const requirePrototypes = (toolName: string): void => {
   if (isFigJam()) {
     throw new Error(`${toolName} is not available in FigJam (FigJam files have no prototypes)`);
+  }
+};
+
+/** The explicit parent when given, else the one parent every node shares. */
+const resolveSharedParent = async (
+  nodes: SceneNode[],
+  parentId: unknown,
+  toolName: string
+): Promise<BaseNode & ChildrenMixin> => {
+  if (typeof parentId === "string") {
+    return getParentNodeById(parentId);
+  }
+  const parents = new Set(nodes.map((n) => n.parent?.id));
+  if (parents.size !== 1 || parents.has(undefined)) {
+    throw new Error(
+      `${toolName} requires all nodes to share a parent, or pass parentId explicitly`
+    );
+  }
+  const sharedParent = nodes[0].parent;
+  if (!sharedParent || !supportsChildren(sharedParent)) {
+    throw new Error("Shared parent does not support children");
+  }
+  return sharedParent;
+};
+
+const TEXT_CASES: readonly TextCase[] = [
+  "ORIGINAL",
+  "UPPER",
+  "LOWER",
+  "TITLE",
+  "SMALL_CAPS",
+  "SMALL_CAPS_FORCED",
+];
+const TEXT_DECORATIONS: readonly TextDecoration[] = ["NONE", "UNDERLINE", "STRIKETHROUGH"];
+
+const isOneOf = <T extends string>(values: readonly T[], value: unknown): value is T =>
+  values.some((entry) => entry === value);
+
+/** Applies the requested styling to characters [start, end) of a text target. */
+const styleTextRange = async (
+  text: TextNode | TextSublayerNode,
+  start: number,
+  end: number,
+  params: ServerRequestParams
+): Promise<void> => {
+  const tool = "set_text_range_style";
+  const {
+    textStyleId,
+    fontFamily,
+    fontStyle,
+    fontSize,
+    fillHex,
+    fillOpacity,
+    textDecoration,
+    textCase,
+    letterSpacing,
+    lineHeight,
+    hyperlink,
+  } = params;
+  await loadFontsForTextNode(text);
+
+  // A text style goes first so explicit properties in the same call override it.
+  if (typeof textStyleId === "string") {
+    const style = await figma.getStyleByIdAsync(textStyleId);
+    if (!style || style.type !== "TEXT") {
+      throw new Error(`${tool}: Text Style not found: ${textStyleId}`);
+    }
+    await figma.loadFontAsync(style.fontName);
+    await text.setRangeTextStyleIdAsync(start, end, style.id);
+  }
+  if (typeof fontFamily === "string" || typeof fontStyle === "string") {
+    const current = text.getRangeFontName(start, end);
+    const family = typeof fontFamily === "string" ? fontFamily : undefined;
+    const style = typeof fontStyle === "string" ? fontStyle : undefined;
+    if (typeof current === "symbol" && (family === undefined || style === undefined)) {
+      throw new Error(`${tool}: the range mixes fonts, so pass both fontFamily and fontStyle`);
+    }
+    const font = await ensureFont(
+      family ?? (typeof current === "symbol" ? "" : current.family),
+      style ?? (typeof current === "symbol" ? "" : current.style)
+    );
+    text.setRangeFontName(start, end, font);
+  }
+  if (typeof fontSize === "number") text.setRangeFontSize(start, end, fontSize);
+  if (typeof fillHex === "string") {
+    const opacity = typeof fillOpacity === "number" ? fillOpacity : 1;
+    text.setRangeFills(start, end, [{ type: "SOLID", color: parseHexColor(fillHex), opacity }]);
+  }
+  if (isOneOf(TEXT_DECORATIONS, textDecoration)) {
+    text.setRangeTextDecoration(start, end, textDecoration);
+  }
+  if (isOneOf(TEXT_CASES, textCase)) text.setRangeTextCase(start, end, textCase);
+  if (typeof letterSpacing === "number") {
+    text.setRangeLetterSpacing(start, end, { unit: "PIXELS", value: letterSpacing });
+  }
+  if (lineHeight === "AUTO") text.setRangeLineHeight(start, end, { unit: "AUTO" });
+  if (typeof lineHeight === "number") {
+    text.setRangeLineHeight(start, end, { unit: "PIXELS", value: lineHeight });
+  }
+  if (hyperlink === null) text.setRangeHyperlink(start, end, null);
+  if (typeof hyperlink === "string") {
+    text.setRangeHyperlink(start, end, { type: "URL", value: hyperlink });
   }
 };
 
@@ -1317,11 +1423,9 @@ const handleRequest = async (request: ServerRequest): Promise<PluginResponse> =>
             ) {
               throw new Error(`Node does not support fill styles: ${node.id} (${node.type})`);
             }
-            previousStyleId =
-              typeof node.fillStyleId === "symbol" ? "mixed" : node.fillStyleId;
+            previousStyleId = typeof node.fillStyleId === "symbol" ? "mixed" : node.fillStyleId;
             await node.setFillStyleIdAsync(style.id);
-            linkedStyleId =
-              typeof node.fillStyleId === "symbol" ? "mixed" : node.fillStyleId;
+            linkedStyleId = typeof node.fillStyleId === "symbol" ? "mixed" : node.fillStyleId;
           } else {
             if (
               !("setStrokeStyleIdAsync" in node) ||
@@ -1330,11 +1434,9 @@ const handleRequest = async (request: ServerRequest): Promise<PluginResponse> =>
             ) {
               throw new Error(`Node does not support stroke styles: ${node.id} (${node.type})`);
             }
-            previousStyleId =
-              typeof node.strokeStyleId === "symbol" ? "mixed" : node.strokeStyleId;
+            previousStyleId = typeof node.strokeStyleId === "symbol" ? "mixed" : node.strokeStyleId;
             await node.setStrokeStyleIdAsync(style.id);
-            linkedStyleId =
-              typeof node.strokeStyleId === "symbol" ? "mixed" : node.strokeStyleId;
+            linkedStyleId = typeof node.strokeStyleId === "symbol" ? "mixed" : node.strokeStyleId;
           }
 
           if (linkedStyleId !== style.id) {
@@ -2638,24 +2740,7 @@ const handleRequest = async (request: ServerRequest): Promise<PluginResponse> =>
 
         const nodes = await Promise.all(request.nodeIds.map((nodeId) => getSceneNodeById(nodeId)));
 
-        const explicitParentId = request.params?.parentId;
-        let parent: BaseNode & ChildrenMixin;
-        if (typeof explicitParentId === "string") {
-          parent = await getParentNodeById(explicitParentId);
-        } else {
-          const parents = new Set(nodes.map((n) => n.parent?.id));
-          if (parents.size !== 1 || parents.has(undefined)) {
-            throw new Error(
-              "group_nodes requires all nodes to share a parent, or pass parentId explicitly"
-            );
-          }
-          const sharedParent = nodes[0].parent;
-          if (!sharedParent || !supportsChildren(sharedParent)) {
-            throw new Error("Shared parent does not support children");
-          }
-          parent = sharedParent;
-        }
-
+        const parent = await resolveSharedParent(nodes, request.params?.parentId, request.type);
         const group = figma.group(nodes, parent);
         const name = request.params?.name;
         if (typeof name === "string") {
@@ -2694,6 +2779,134 @@ const handleRequest = async (request: ServerRequest): Promise<PluginResponse> =>
             parentId,
             orphanIds: orphans.map((o) => o.id),
           },
+        };
+      }
+      case "list_components":
+      case "get_component_properties":
+      case "create_component":
+      case "create_component_set":
+      case "create_instance":
+      case "add_component_property":
+      case "edit_component_property":
+      case "delete_component_property":
+      case "bind_component_property":
+      case "set_instance_properties":
+      case "detach_instance": {
+        if (isFigJam()) {
+          throw new Error(`${request.type} is not available in FigJam (FigJam has no components)`);
+        }
+        const nodes = await Promise.all((request.nodeIds ?? []).map(getSceneNodeById));
+        const parentId = request.params?.parentId;
+        const parent = typeof parentId === "string" ? await getParentNodeById(parentId) : undefined;
+        return {
+          type: request.type,
+          requestId: request.requestId,
+          data: await runComponentTool(request.type, nodes, request.params ?? {}, parent),
+        };
+      }
+      case "boolean_operation": {
+        if (figma.editorType !== "figma") {
+          throw new Error("boolean_operation is only available in Figma Design");
+        }
+        if (!request.nodeIds || request.nodeIds.length === 0) {
+          throw new Error("nodeIds is required for boolean_operation");
+        }
+        const nodes = await Promise.all(request.nodeIds.map((id) => getSceneNodeById(id)));
+        const parent = await resolveSharedParent(nodes, request.params?.parentId, request.type);
+        const operation = request.params?.operation;
+        let result: BooleanOperationNode;
+        switch (operation) {
+          case "UNION":
+            result = figma.union(nodes, parent);
+            break;
+          case "SUBTRACT":
+            result = figma.subtract(nodes, parent);
+            break;
+          case "INTERSECT":
+            result = figma.intersect(nodes, parent);
+            break;
+          case "EXCLUDE":
+            result = figma.exclude(nodes, parent);
+            break;
+          default:
+            throw new Error("operation must be UNION, SUBTRACT, INTERSECT or EXCLUDE");
+        }
+        const name = request.params?.name;
+        if (typeof name === "string") {
+          result.name = name;
+        }
+        return {
+          type: request.type,
+          requestId: request.requestId,
+          data: {
+            nodeId: result.id,
+            nodeName: result.name,
+            booleanOperation: result.booleanOperation,
+            parentId: result.parent?.id,
+            childIds: result.children.map((c) => c.id),
+          },
+        };
+      }
+      case "set_text_range_style": {
+        const nodeIds = request.nodeIds ?? [];
+        if (nodeIds.length === 0) {
+          throw new Error("nodeIds is required for set_text_range_style");
+        }
+        const params = request.params ?? {};
+        const targets = await Promise.all(nodeIds.map((id) => getTextTargetById(id, request.type)));
+        // Preflight every range before writing so a bad range can't leave a batch half-styled.
+        const ranges = targets.map(({ node, text }) => {
+          const length = text.characters.length;
+          const start = typeof params.start === "number" ? params.start : 0;
+          const end = typeof params.end === "number" ? params.end : length;
+          if (start < 0 || end > length || start >= end) {
+            throw new Error(
+              `set_text_range_style: range ${start}-${end} does not fit ${node.id} (${length} characters)`
+            );
+          }
+          return { start, end };
+        });
+        const results: unknown[] = [];
+        for (const [i, { node, text }] of targets.entries()) {
+          const { start, end } = ranges[i];
+          await styleTextRange(text, start, end, params);
+          results.push({
+            nodeId: node.id,
+            nodeName: node.name,
+            start,
+            end,
+            segments: text.getStyledTextSegments([
+              "fontName",
+              "fontSize",
+              "fills",
+              "textDecoration",
+              "textCase",
+              "letterSpacing",
+              "lineHeight",
+              "textStyleId",
+              "hyperlink",
+            ]),
+          });
+        }
+        return { type: request.type, requestId: request.requestId, data: { results } };
+      }
+      case "create_paint_style":
+      case "create_text_style":
+      case "create_variable_collection":
+      case "create_variable":
+      case "set_variable_values":
+      case "bind_variable":
+      case "delete_style":
+      case "delete_variable":
+      case "delete_variable_collection": {
+        if (figma.editorType !== "figma") {
+          throw new Error(`${request.type} is only available in Figma Design`);
+        }
+        const nodes = await Promise.all((request.nodeIds ?? []).map(getSceneNodeById));
+        return {
+          type: request.type,
+          requestId: request.requestId,
+          data: await runTokenTool(request.type, nodes, request.params ?? {}),
         };
       }
       case "set_selection": {

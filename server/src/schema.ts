@@ -170,7 +170,6 @@ export const setNodePropertiesInput = setNodePropertiesShape
     "At least one property must be provided"
   );
 
-
 /** Figma's native constraint values (UI: Left/Top=MIN, Right/Bottom=MAX, Left & Right/Top & Bottom=STRETCH). */
 const nodeConstraint = z.enum(["MIN", "MAX", "CENTER", "STRETCH", "SCALE"]);
 
@@ -384,6 +383,390 @@ export const ungroupNodeInput = z.object({
   nodeId: createFigmaNodeIdSchema().describe(
     "Group or frame to ungroup. Children move up to its parent and the wrapper is removed."
   ),
+  fileKey: fileKeyField,
+});
+
+const batchNodeIdFields = {
+  nodeId: createFigmaNodeIdSchema()
+    .optional()
+    .describe("Single node ID. Required unless nodeIds is provided."),
+  nodeIds: z
+    .array(createFigmaNodeIdSchema())
+    .min(1)
+    .optional()
+    .describe("Batch of node IDs to apply the same operation to."),
+};
+
+const hasNodeIdOrNodeIds = (value: { nodeId?: string; nodeIds?: string[] }): boolean =>
+  value.nodeId !== undefined || value.nodeIds !== undefined;
+
+const NODE_ID_OR_NODE_IDS_REQUIRED = "Either nodeId or nodeIds is required";
+
+const componentPropertyValue = z.union([z.string(), z.boolean()]);
+
+const componentPropertyName = z
+  .string()
+  .min(1)
+  .describe(
+    "Exact property name from get_component_properties. BOOLEAN, TEXT and INSTANCE_SWAP names carry a '#id' suffix (e.g. 'Show icon#12:0'); VARIANT names do not."
+  );
+
+const componentPropertyValues = z
+  .record(componentPropertyValue)
+  .describe(
+    "Map of property name to value: string for VARIANT and TEXT, boolean for BOOLEAN, a component node ID for INSTANCE_SWAP. Names must match get_component_properties exactly, including any '#id' suffix."
+  );
+
+export const listComponentsInput = z.object({
+  allPages: z
+    .boolean()
+    .optional()
+    .describe(
+      "Scan every page instead of only the current one (default false). Loads all pages, which is slow in large files."
+    ),
+  fileKey: fileKeyField,
+});
+
+export const getComponentPropertiesInput = z.object({
+  nodeId: createFigmaNodeIdSchema().describe(
+    "A COMPONENT, COMPONENT_SET or INSTANCE node, or a layer inside a component."
+  ),
+  fileKey: fileKeyField,
+});
+
+export const createComponentShape = z.object({
+  ...batchNodeIdFields,
+  fileKey: fileKeyField,
+});
+
+export const createComponentInput = createComponentShape.refine(
+  hasNodeIdOrNodeIds,
+  NODE_ID_OR_NODE_IDS_REQUIRED
+);
+
+export const createComponentSetInput = z.object({
+  nodeIds: z
+    .array(createFigmaNodeIdSchema())
+    .min(1)
+    .describe("COMPONENT node IDs to combine as variants of one component set."),
+  parentId: createFigmaNodeIdSchema()
+    .optional()
+    .describe("Optional parent for the new set. Defaults to the first component's parent."),
+  name: z.string().optional().describe("Optional name for the component set"),
+  fileKey: fileKeyField,
+});
+
+export const createInstanceInput = z.object({
+  componentId: createFigmaNodeIdSchema().describe(
+    "COMPONENT to instantiate, or a COMPONENT_SET to instantiate its default variant."
+  ),
+  parentId: createFigmaNodeIdSchema()
+    .optional()
+    .describe("Optional parent for the instance. Defaults to the current page."),
+  x: z.number().optional().describe("Optional x position"),
+  y: z.number().optional().describe("Optional y position"),
+  name: z.string().optional().describe("Optional layer name for the instance"),
+  properties: componentPropertyValues.optional(),
+  fileKey: fileKeyField,
+});
+
+export const addComponentPropertyInput = z.object({
+  nodeId: createFigmaNodeIdSchema().describe(
+    "COMPONENT or COMPONENT_SET to add the property to. A variant resolves to its component set."
+  ),
+  name: z.string().min(1).describe("Property name as shown in Figma, without a '#id' suffix"),
+  type: z
+    .enum(["BOOLEAN", "TEXT", "INSTANCE_SWAP", "VARIANT"])
+    .describe("Property type. VARIANT is only valid on a COMPONENT_SET."),
+  defaultValue: componentPropertyValue.describe(
+    "Default value: boolean for BOOLEAN, string for TEXT and VARIANT, a component node ID for INSTANCE_SWAP."
+  ),
+  fileKey: fileKeyField,
+});
+
+export const editComponentPropertyShape = z.object({
+  nodeId: createFigmaNodeIdSchema().describe(
+    "COMPONENT or COMPONENT_SET that owns the property. A variant resolves to its component set."
+  ),
+  propertyName: componentPropertyName,
+  newName: z.string().min(1).optional().describe("Optional new property name"),
+  defaultValue: componentPropertyValue
+    .optional()
+    .describe("Optional new default value. Not supported for VARIANT properties."),
+  fileKey: fileKeyField,
+});
+
+export const editComponentPropertyInput = editComponentPropertyShape.refine(
+  (value) => value.newName !== undefined || value.defaultValue !== undefined,
+  "At least one of newName or defaultValue must be provided"
+);
+
+export const deleteComponentPropertyInput = z.object({
+  nodeId: createFigmaNodeIdSchema().describe(
+    "COMPONENT or COMPONENT_SET that owns the property. A variant resolves to its component set."
+  ),
+  propertyName: componentPropertyName,
+  confirm: z.boolean().describe("Must be true to confirm deletion"),
+  fileKey: fileKeyField,
+});
+
+export const bindComponentPropertyShape = z.object({
+  ...batchNodeIdFields,
+  field: z
+    .enum(["visible", "characters", "mainComponent"])
+    .describe(
+      "Layer field to drive: visible (BOOLEAN property), characters (TEXT property, on a TEXT layer), mainComponent (INSTANCE_SWAP property, on a nested instance)."
+    ),
+  propertyName: componentPropertyName
+    .nullable()
+    .describe(
+      "Property to bind the field to, exactly as returned by get_component_properties (with its '#id' suffix). Pass null to unbind the field."
+    ),
+  fileKey: fileKeyField,
+});
+
+export const bindComponentPropertyInput = bindComponentPropertyShape.refine(
+  hasNodeIdOrNodeIds,
+  NODE_ID_OR_NODE_IDS_REQUIRED
+);
+
+export const setInstancePropertiesShape = z.object({
+  ...batchNodeIdFields,
+  properties: componentPropertyValues,
+  fileKey: fileKeyField,
+});
+
+export const setInstancePropertiesInput = setInstancePropertiesShape.refine(
+  hasNodeIdOrNodeIds,
+  NODE_ID_OR_NODE_IDS_REQUIRED
+);
+
+export const detachInstanceShape = z.object({
+  ...batchNodeIdFields,
+  fileKey: fileKeyField,
+});
+
+export const detachInstanceInput = detachInstanceShape.refine(
+  hasNodeIdOrNodeIds,
+  NODE_ID_OR_NODE_IDS_REQUIRED
+);
+
+export const booleanOperationInput = z.object({
+  nodeIds: z
+    .array(createFigmaNodeIdSchema())
+    .min(1)
+    .describe(
+      "Shapes, vectors, text or groups to combine, bottom layer first. Must share a parent unless parentId is given."
+    ),
+  operation: z
+    .enum(["UNION", "SUBTRACT", "INTERSECT", "EXCLUDE"])
+    .describe("Boolean operation. SUBTRACT removes the upper layers from the bottom one."),
+  parentId: createFigmaNodeIdSchema()
+    .optional()
+    .describe("Optional explicit parent. Defaults to the shared parent of the input nodes."),
+  name: z.string().optional().describe("Optional name for the boolean group"),
+  fileKey: fileKeyField,
+});
+
+export const setTextRangeStyleShape = z.object({
+  ...batchNodeIdFields,
+  start: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe("First character index (inclusive, 0-based). Defaults to 0."),
+  end: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe("Character index to stop before (exclusive). Defaults to the text length."),
+  textStyleId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Local Text Style ID (from get_styles or create_text_style) to link to the range. Applied before the other properties, which then override it."
+    ),
+  fontFamily: z.string().min(1).optional().describe("Font family, e.g. 'Inter'"),
+  fontStyle: z.string().min(1).optional().describe("Font style, e.g. 'Bold' or 'Italic'"),
+  fontSize: z.number().positive().optional().describe("Font size in pixels"),
+  fillHex: createHexColorSchema().optional().describe("Solid text color as hex"),
+  fillOpacity: z.number().min(0).max(1).optional().describe("Text color opacity (default 1)"),
+  textDecoration: z.enum(["NONE", "UNDERLINE", "STRIKETHROUGH"]).optional(),
+  textCase: z
+    .enum(["ORIGINAL", "UPPER", "LOWER", "TITLE", "SMALL_CAPS", "SMALL_CAPS_FORCED"])
+    .optional(),
+  letterSpacing: z.number().optional().describe("Letter spacing in pixels"),
+  lineHeight: z
+    .union([z.number().positive(), z.literal("AUTO")])
+    .optional()
+    .describe("Line height in pixels, or 'AUTO'"),
+  hyperlink: z
+    .string()
+    .url()
+    .nullable()
+    .optional()
+    .describe("URL to link the range to, or null to remove a link"),
+  fileKey: fileKeyField,
+});
+
+export const setTextRangeStyleInput = setTextRangeStyleShape
+  .refine(hasNodeIdOrNodeIds, NODE_ID_OR_NODE_IDS_REQUIRED)
+  .refine(
+    (value) => value.start === undefined || value.end === undefined || value.start < value.end,
+    "start must be less than end"
+  )
+  .refine(
+    (value) =>
+      value.textStyleId !== undefined ||
+      value.fontFamily !== undefined ||
+      value.fontStyle !== undefined ||
+      value.fontSize !== undefined ||
+      value.fillHex !== undefined ||
+      value.textDecoration !== undefined ||
+      value.textCase !== undefined ||
+      value.letterSpacing !== undefined ||
+      value.lineHeight !== undefined ||
+      value.hyperlink !== undefined,
+    "At least one style property must be provided"
+  );
+
+export const createPaintStyleInput = z.object({
+  name: z.string().min(1).describe("Style name. Use '/' to group, e.g. 'Brand/Primary'."),
+  hex: createHexColorSchema().describe("Solid color as hex"),
+  opacity: z.number().min(0).max(1).optional().describe("Paint opacity (default 1)"),
+  description: z.string().optional().describe("Optional style description"),
+  fileKey: fileKeyField,
+});
+
+export const createTextStyleInput = z.object({
+  name: z.string().min(1).describe("Style name. Use '/' to group, e.g. 'Heading/H1'."),
+  fontFamily: z.string().min(1).describe("Font family, e.g. 'Inter'"),
+  fontStyle: z.string().min(1).optional().describe("Font style (default 'Regular')"),
+  fontSize: z.number().positive().optional().describe("Font size in pixels"),
+  lineHeight: z
+    .union([z.number().positive(), z.literal("AUTO")])
+    .optional()
+    .describe("Line height in pixels, or 'AUTO'"),
+  letterSpacing: z.number().optional().describe("Letter spacing in pixels"),
+  textCase: z
+    .enum(["ORIGINAL", "UPPER", "LOWER", "TITLE", "SMALL_CAPS", "SMALL_CAPS_FORCED"])
+    .optional(),
+  textDecoration: z.enum(["NONE", "UNDERLINE", "STRIKETHROUGH"]).optional(),
+  description: z.string().optional().describe("Optional style description"),
+  fileKey: fileKeyField,
+});
+
+export const createVariableCollectionInput = z.object({
+  name: z.string().min(1).describe("Collection name, e.g. 'Colors'"),
+  modes: z
+    .array(z.string().min(1))
+    .min(1)
+    .optional()
+    .describe(
+      "Mode names, e.g. ['Light', 'Dark']. The first renames the default mode. Extra modes need a paid Figma plan; if one is refused, nothing is created."
+    ),
+  fileKey: fileKeyField,
+});
+
+const variableValue = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.object({ alias: z.string().min(1).describe("ID of the variable to reference") }),
+]);
+
+const variableValuesByMode = z
+  .record(variableValue)
+  .describe(
+    "Values keyed by mode name or modeId. COLOR takes a hex string ('#RRGGBB' or '#RRGGBBAA'), FLOAT a number, STRING a string, BOOLEAN a boolean; any type can instead reference another variable with { alias: variableId }."
+  );
+
+export const createVariableInput = z.object({
+  collectionId: z
+    .string()
+    .min(1)
+    .describe("Variable collection ID from create_variable_collection or get_variable_defs"),
+  name: z.string().min(1).describe("Variable name. Use '/' to group, e.g. 'color/primary'."),
+  resolvedType: z.enum(["COLOR", "FLOAT", "STRING", "BOOLEAN"]).describe("Variable type"),
+  values: variableValuesByMode.optional(),
+  description: z.string().optional().describe("Optional variable description"),
+  fileKey: fileKeyField,
+});
+
+export const setVariableValuesInput = z.object({
+  variableId: z.string().min(1).describe("Variable ID from create_variable or get_variable_defs"),
+  values: variableValuesByMode,
+  fileKey: fileKeyField,
+});
+
+export const bindVariableShape = z.object({
+  ...batchNodeIdFields,
+  field: z
+    .enum([
+      "fill",
+      "stroke",
+      "width",
+      "height",
+      "minWidth",
+      "maxWidth",
+      "minHeight",
+      "maxHeight",
+      "opacity",
+      "visible",
+      "characters",
+      "cornerRadius",
+      "topLeftRadius",
+      "topRightRadius",
+      "bottomLeftRadius",
+      "bottomRightRadius",
+      "itemSpacing",
+      "counterAxisSpacing",
+      "paddingLeft",
+      "paddingRight",
+      "paddingTop",
+      "paddingBottom",
+      "strokeWeight",
+    ])
+    .describe(
+      "Node field to drive. fill/stroke take a COLOR variable and bind the first solid paint (adding one if needed); visible takes BOOLEAN, characters takes STRING, the rest take FLOAT."
+    ),
+  variableId: z
+    .string()
+    .min(1)
+    .nullable()
+    .describe("Variable to bind, or null to unbind the field"),
+  fileKey: fileKeyField,
+});
+
+export const bindVariableInput = bindVariableShape.refine(
+  hasNodeIdOrNodeIds,
+  NODE_ID_OR_NODE_IDS_REQUIRED
+);
+
+export const deleteStyleInput = z.object({
+  styleId: z.string().min(1).describe("Local style ID from get_styles or a create_*_style tool"),
+  confirm: z.boolean().describe("Must be true to confirm deletion"),
+  fileKey: fileKeyField,
+});
+
+export const deleteVariableInput = z.object({
+  variableId: z
+    .string()
+    .min(1)
+    .describe("Local variable ID from get_variable_defs or create_variable"),
+  confirm: z.boolean().describe("Must be true to confirm deletion"),
+  fileKey: fileKeyField,
+});
+
+export const deleteVariableCollectionInput = z.object({
+  collectionId: z
+    .string()
+    .min(1)
+    .describe("Local variable collection ID from get_variable_defs or create_variable_collection"),
+  confirm: z.boolean().describe("Must be true to confirm deletion"),
   fileKey: fileKeyField,
 });
 
@@ -1141,6 +1524,50 @@ export const toolInputSchemas = {
 
   ungroup_node: ungroupNodeInput,
 
+  list_components: listComponentsInput,
+
+  get_component_properties: getComponentPropertiesInput,
+
+  create_component: createComponentInput,
+
+  create_component_set: createComponentSetInput,
+
+  create_instance: createInstanceInput,
+
+  add_component_property: addComponentPropertyInput,
+
+  edit_component_property: editComponentPropertyInput,
+
+  delete_component_property: deleteComponentPropertyInput,
+
+  bind_component_property: bindComponentPropertyInput,
+
+  set_instance_properties: setInstancePropertiesInput,
+
+  detach_instance: detachInstanceInput,
+
+  boolean_operation: booleanOperationInput,
+
+  set_text_range_style: setTextRangeStyleInput,
+
+  create_paint_style: createPaintStyleInput,
+
+  create_text_style: createTextStyleInput,
+
+  create_variable_collection: createVariableCollectionInput,
+
+  create_variable: createVariableInput,
+
+  set_variable_values: setVariableValuesInput,
+
+  bind_variable: bindVariableInput,
+
+  delete_style: deleteStyleInput,
+
+  delete_variable: deleteVariableInput,
+
+  delete_variable_collection: deleteVariableCollectionInput,
+
   set_selection: setSelectionInput,
 
   scroll_and_zoom_into_view: scrollAndZoomIntoViewInput,
@@ -1388,6 +1815,28 @@ const rpcToArgs: Record<
   reparent_nodes: (nodeIds, params) => ({ nodeIds, ...params }),
   group_nodes: (nodeIds, params) => ({ nodeIds, ...params }),
   ungroup_node: (nodeIds, params) => ({ nodeId: nodeIds?.[0], ...params }),
+  list_components: (_nodeIds, params) => ({ ...params }),
+  get_component_properties: (nodeIds, params) => ({ ...params, nodeId: nodeIds?.[0] }),
+  create_component: (nodeIds, params) => ({ nodeIds, ...params }),
+  create_component_set: (nodeIds, params) => ({ nodeIds, ...params }),
+  create_instance: (nodeIds, params) => ({ ...params, componentId: nodeIds?.[0] }),
+  add_component_property: (nodeIds, params) => ({ ...params, nodeId: nodeIds?.[0] }),
+  edit_component_property: (nodeIds, params) => ({ ...params, nodeId: nodeIds?.[0] }),
+  delete_component_property: (nodeIds, params) => ({ ...params, nodeId: nodeIds?.[0] }),
+  bind_component_property: (nodeIds, params) => ({ nodeIds, ...params }),
+  set_instance_properties: (nodeIds, params) => ({ nodeIds, ...params }),
+  detach_instance: (nodeIds, params) => ({ nodeIds, ...params }),
+  boolean_operation: (nodeIds, params) => ({ nodeIds, ...params }),
+  set_text_range_style: (nodeIds, params) => ({ nodeIds, ...params }),
+  create_paint_style: (_nodeIds, params) => ({ ...params }),
+  create_text_style: (_nodeIds, params) => ({ ...params }),
+  create_variable_collection: (_nodeIds, params) => ({ ...params }),
+  create_variable: (_nodeIds, params) => ({ ...params }),
+  set_variable_values: (_nodeIds, params) => ({ ...params }),
+  bind_variable: (nodeIds, params) => ({ nodeIds, ...params }),
+  delete_style: (_nodeIds, params) => ({ ...params }),
+  delete_variable: (_nodeIds, params) => ({ ...params }),
+  delete_variable_collection: (_nodeIds, params) => ({ ...params }),
   set_selection: (nodeIds, params) => ({ nodeIds, ...params }),
   scroll_and_zoom_into_view: (nodeIds, params) => ({ nodeIds, ...params }),
   delete_nodes: (nodeIds, params) => ({ nodeIds, ...params }),
