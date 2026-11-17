@@ -65,6 +65,11 @@ import {
   deleteStyleInput,
   deleteVariableInput,
   deleteVariableCollectionInput,
+  setPrototypeLinkShape,
+  setPrototypeLinkInput,
+  removePrototypeLinksShape,
+  removePrototypeLinksInput,
+  setFlowStartingPointInput,
   setTextPropertiesShape,
   setTextPropertiesInput,
   createConnectorBase,
@@ -845,6 +850,45 @@ export function registerTools(server: McpServer, node: Node, port: number): void
     async ({ fileKey, ...params }): Promise<ToolResult> => {
       return renderResponse(() =>
         node.sendWithParams("delete_variable_collection", undefined, params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "set_prototype_link",
+    "Add a prototype interaction to layers: a trigger (click, hover, press, drag, after delay) and an action (navigate to a screen, open or swap an overlay, back, close overlay, open a URL), with an optional transition. An existing interaction with the same trigger is replaced, like Figma's prototype panel. Accepts nodeId or nodeIds and returns previous and applied interactions; read them back with get_prototype_connections. Not available in FigJam. When multiple files are connected, specify fileKey.",
+    setPrototypeLinkShape.shape,
+    async (args): Promise<ToolResult> => {
+      const parsed = parseToolInput(setPrototypeLinkInput, args);
+      if (!parsed.success) return parsed.error;
+      const { nodeId, nodeIds, fileKey, ...params } = parsed.data;
+      const ids = nodeIds ?? (nodeId !== undefined ? [nodeId] : []);
+      return renderResponse(() => node.sendWithParams("set_prototype_link", ids, params, fileKey));
+    }
+  );
+
+  server.tool(
+    "remove_prototype_links",
+    "Remove prototype interactions from layers: all of them, or only those with one trigger. This is destructive and requires confirm: true. Accepts nodeId or nodeIds and returns what was removed. Not available in FigJam. When multiple files are connected, specify fileKey.",
+    removePrototypeLinksShape.shape,
+    async (args): Promise<ToolResult> => {
+      const parsed = parseToolInput(removePrototypeLinksInput, args);
+      if (!parsed.success) return parsed.error;
+      const { nodeId, nodeIds, fileKey, ...params } = parsed.data;
+      const ids = nodeIds ?? (nodeId !== undefined ? [nodeId] : []);
+      return renderResponse(() =>
+        node.sendWithParams("remove_prototype_links", ids, params, fileKey)
+      );
+    }
+  );
+
+  server.tool(
+    "set_flow_starting_point",
+    "Make a top-level frame a prototype flow starting point (shown in Presentation view), rename its flow, or remove it with remove: true. Returns the page's flow starting points before and after. Not available in FigJam. When multiple files are connected, specify fileKey.",
+    setFlowStartingPointInput.shape,
+    async ({ nodeId, fileKey, ...params }): Promise<ToolResult> => {
+      return renderResponse(() =>
+        node.sendWithParams("set_flow_starting_point", [nodeId], params, fileKey)
       );
     }
   );

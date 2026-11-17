@@ -1,7 +1,14 @@
 import { serializeNode } from "./serializer";
 import type { SerializableNode } from "./serializer";
 import { addLayersToFrame } from "../html-figma/figma";
-import { getPrototypeConnections, scanPrototype, tracePrototypeFlow } from "./prototype";
+import {
+  getPrototypeConnections,
+  removePrototypeLinks,
+  scanPrototype,
+  setFlowStartingPoint,
+  setPrototypeLink,
+  tracePrototypeFlow,
+} from "./prototype";
 import { runComponentTool } from "./components";
 import type { ComponentRequestType } from "./components";
 import { parseHexColor } from "./color";
@@ -66,6 +73,9 @@ type RequestType =
   | "set_timeline_duration"
   | "boolean_operation"
   | "set_text_range_style"
+  | "set_prototype_link"
+  | "remove_prototype_links"
+  | "set_flow_starting_point"
   | ComponentRequestType
   | TokenRequestType;
 
@@ -442,6 +452,9 @@ const EDIT_REQUEST_TYPES = new Set<RequestType>([
   "delete_style",
   "delete_variable",
   "delete_variable_collection",
+  "set_prototype_link",
+  "remove_prototype_links",
+  "set_flow_starting_point",
 ]);
 
 const requireEditorMode = (toolName: RequestType): void => {
@@ -2803,6 +2816,25 @@ const handleRequest = async (request: ServerRequest): Promise<PluginResponse> =>
           requestId: request.requestId,
           data: await runComponentTool(request.type, nodes, request.params ?? {}, parent),
         };
+      }
+      case "set_prototype_link":
+      case "remove_prototype_links":
+      case "set_flow_starting_point": {
+        requirePrototypes(request.type);
+        const nodes = await Promise.all((request.nodeIds ?? []).map(getSceneNodeById));
+        const params = request.params ?? {};
+        let data: unknown;
+        if (request.type === "set_prototype_link") {
+          data = await setPrototypeLink(nodes, params);
+        } else if (request.type === "remove_prototype_links") {
+          data = await removePrototypeLinks(nodes, params);
+        } else {
+          if (nodes.length === 0) {
+            throw new Error("nodeId is required for set_flow_starting_point");
+          }
+          data = setFlowStartingPoint(nodes[0], params);
+        }
+        return { type: request.type, requestId: request.requestId, data };
       }
       case "boolean_operation": {
         if (figma.editorType !== "figma") {

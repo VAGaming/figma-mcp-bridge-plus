@@ -770,6 +770,106 @@ export const deleteVariableCollectionInput = z.object({
   fileKey: fileKeyField,
 });
 
+export const setPrototypeLinkShape = z.object({
+  ...batchNodeIdFields,
+  trigger: z
+    .enum(["ON_CLICK", "ON_HOVER", "ON_PRESS", "ON_DRAG", "AFTER_TIMEOUT"])
+    .describe(
+      "What starts the interaction. AFTER_TIMEOUT also needs timeoutSeconds. ON_DRAG only works with BACK, CLOSE, or NAVIGATE using SMART_ANIMATE or a directional transition."
+    ),
+  timeoutSeconds: z
+    .number()
+    .positive()
+    .optional()
+    .describe("Delay in seconds for AFTER_TIMEOUT, e.g. 0.8"),
+  action: z
+    .enum(["NAVIGATE", "OVERLAY", "SWAP", "BACK", "CLOSE", "URL"])
+    .describe(
+      "NAVIGATE goes to another screen, OVERLAY opens one on top, SWAP replaces the current overlay, BACK goes back, CLOSE closes the overlay, URL opens a link."
+    ),
+  destinationId: createFigmaNodeIdSchema()
+    .optional()
+    .describe(
+      "Destination screen for NAVIGATE, OVERLAY and SWAP: a top-level frame on the same page."
+    ),
+  url: z.string().url().optional().describe("Link for the URL action"),
+  openInNewTab: z.boolean().optional().describe("For URL: open in a new tab (default true)"),
+  transition: z
+    .enum([
+      "INSTANT",
+      "DISSOLVE",
+      "SMART_ANIMATE",
+      "MOVE_IN",
+      "MOVE_OUT",
+      "PUSH",
+      "SLIDE_IN",
+      "SLIDE_OUT",
+    ])
+    .optional()
+    .describe(
+      "Animation for NAVIGATE, OVERLAY and SWAP (default INSTANT). MOVE_IN, MOVE_OUT, PUSH, SLIDE_IN and SLIDE_OUT also need direction."
+    ),
+  direction: z
+    .enum(["LEFT", "RIGHT", "TOP", "BOTTOM"])
+    .optional()
+    .describe("Direction for directional transitions"),
+  durationSeconds: z
+    .number()
+    .positive()
+    .max(10)
+    .optional()
+    .describe("Transition duration in seconds (default 0.3)"),
+  easing: z
+    .enum(["EASE_IN", "EASE_OUT", "EASE_IN_AND_OUT", "LINEAR", "GENTLE", "QUICK", "BOUNCY", "SLOW"])
+    .optional()
+    .describe("Transition easing (default EASE_OUT)"),
+  fileKey: fileKeyField,
+});
+
+const DIRECTIONAL_TRANSITIONS = ["MOVE_IN", "MOVE_OUT", "PUSH", "SLIDE_IN", "SLIDE_OUT"];
+
+export const setPrototypeLinkInput = setPrototypeLinkShape
+  .refine(hasNodeIdOrNodeIds, NODE_ID_OR_NODE_IDS_REQUIRED)
+  .refine(
+    (value) => value.trigger !== "AFTER_TIMEOUT" || value.timeoutSeconds !== undefined,
+    "AFTER_TIMEOUT needs timeoutSeconds"
+  )
+  .refine(
+    (value) =>
+      !["NAVIGATE", "OVERLAY", "SWAP"].includes(value.action) || value.destinationId !== undefined,
+    "NAVIGATE, OVERLAY and SWAP need destinationId"
+  )
+  .refine((value) => value.action !== "URL" || value.url !== undefined, "URL needs url")
+  .refine(
+    (value) =>
+      value.transition === undefined ||
+      !DIRECTIONAL_TRANSITIONS.includes(value.transition) ||
+      value.direction !== undefined,
+    "Directional transitions need direction"
+  );
+
+export const removePrototypeLinksShape = z.object({
+  ...batchNodeIdFields,
+  trigger: z
+    .enum(["ON_CLICK", "ON_HOVER", "ON_PRESS", "ON_DRAG", "AFTER_TIMEOUT"])
+    .optional()
+    .describe("Only remove interactions with this trigger. Omit to remove all of them."),
+  confirm: z.boolean().describe("Must be true to confirm removal"),
+  fileKey: fileKeyField,
+});
+
+export const removePrototypeLinksInput = removePrototypeLinksShape.refine(
+  hasNodeIdOrNodeIds,
+  NODE_ID_OR_NODE_IDS_REQUIRED
+);
+
+export const setFlowStartingPointInput = z.object({
+  nodeId: createFigmaNodeIdSchema().describe("Top-level frame to start the flow from"),
+  name: z.string().min(1).optional().describe("Flow name shown in Presentation view"),
+  remove: z.boolean().optional().describe("Remove this frame's flow starting point instead"),
+  fileKey: fileKeyField,
+});
+
 export const setEffectsShape = z.object({
   nodeId: createFigmaNodeIdSchema().describe("The node ID to update"),
   effects: z
@@ -1568,6 +1668,12 @@ export const toolInputSchemas = {
 
   delete_variable_collection: deleteVariableCollectionInput,
 
+  set_prototype_link: setPrototypeLinkInput,
+
+  remove_prototype_links: removePrototypeLinksInput,
+
+  set_flow_starting_point: setFlowStartingPointInput,
+
   set_selection: setSelectionInput,
 
   scroll_and_zoom_into_view: scrollAndZoomIntoViewInput,
@@ -1837,6 +1943,9 @@ const rpcToArgs: Record<
   delete_style: (_nodeIds, params) => ({ ...params }),
   delete_variable: (_nodeIds, params) => ({ ...params }),
   delete_variable_collection: (_nodeIds, params) => ({ ...params }),
+  set_prototype_link: (nodeIds, params) => ({ nodeIds, ...params }),
+  remove_prototype_links: (nodeIds, params) => ({ nodeIds, ...params }),
+  set_flow_starting_point: (nodeIds, params) => ({ ...params, nodeId: nodeIds?.[0] }),
   set_selection: (nodeIds, params) => ({ nodeIds, ...params }),
   scroll_and_zoom_into_view: (nodeIds, params) => ({ nodeIds, ...params }),
   delete_nodes: (nodeIds, params) => ({ nodeIds, ...params }),
